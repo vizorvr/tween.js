@@ -9,71 +9,130 @@
 
 
 var _Group = function () {
+
 	this._tweens = {};
-	this._tweensAddedDuringUpdate = {};
+	this._tweenIds = [];
+	this._updateIds = [];
+	this._updateIndex = 0;
+	this._isUpdating = false;
+
 };
 
 _Group.prototype = {
 	getAll: function () {
 
-		return Object.keys(this._tweens).map(function (tweenId) {
-			return this._tweens[tweenId];
-		}.bind(this));
+		var ret = [];
+		var i = 0;
+
+		for (; i < this._tweenIds.length; i++) {
+			ret[i] = this._tweens[this._tweenIds[i]];
+		}
+
+		return ret;
 
 	},
 
 	removeAll: function () {
 
 		this._tweens = {};
+		this._tweenIds.length = 0;
 
 	},
 
 	add: function (tween) {
 
-		this._tweens[tween.getId()] = tween;
-		this._tweensAddedDuringUpdate[tween.getId()] = tween;
+		var tweenId = tween.getId();
+
+		// If this tween instance is not in tweens object yet, let's add it.
+		if (!this._tweens[tweenId]) {
+			this._tweens[tweenId] = tween;
+			this._tweenIds[this._tweenIds.length] = tweenId;
+		}
+
+		// If we are looping, let's add the tween to the next update batch if it is
+		// not there already.
+		if (
+			this._isUpdating &&
+			this._updateIds.indexOf(tweenId, this._updateIndex) < 0
+		) {
+			this._updateIds[this._updateIds.length] = tweenId;
+		}
 
 	},
 
 	remove: function (tween) {
 
-		delete this._tweens[tween.getId()];
-		delete this._tweensAddedDuringUpdate[tween.getId()];
+		var tweenId = tween.getId();
+
+		// Let's remove the tween from the collections if it exists there.
+		if (this._tweens[tweenId]) {
+			this._tweens[tweenId] = undefined;
+			this._tweenIds.splice(this._tweenIds.indexOf(tweenId), 1);
+		}
+
+		// Update the update queue if necessary.
+		/*
+		if (this._isUpdating) {
+			var index = this._updateIds.indexOf(tweenId, this._updateIndex);
+			if (index > -1) {
+				this._updateIds.splice(index, 1, 0);
+			}
+		}
+		*/
 
 	},
 
 	update: function (time, preserve) {
 
-		var tweenIds = Object.keys(this._tweens);
-
-		if (tweenIds.length === 0) {
+		if (!this._tweenIds.length) {
 			return false;
 		}
 
 		time = time !== undefined ? time : TWEEN.now();
 
+		var isFirstBatch = true;
+		var tweenCount = this._tweenIds.length;
+		var tweenId;
+		var tween;
+		var i = 0;
+
+		this._isUpdating = true;
+		this._updateIndex = 0;
+		this._updateIds.length = 0;
+
 		// Tweens are updated in "batches". If you add a new tween during an update, then the
 		// new tween will be updated in the next batch.
 		// If you remove a tween during an update, it may or may not be updated. However,
 		// if the removed tween was added during the current batch, then it will not be updated.
-		while (tweenIds.length > 0) {
-			this._tweensAddedDuringUpdate = {};
-
-			for (var i = 0; i < tweenIds.length; i++) {
-
-				var tween = this._tweens[tweenIds[i]];
+		while (tweenCount > i) {
+			for (; i < tweenCount; i++) {
+				tweenId = isFirstBatch ? this._tweenIds[i] : this._updateIds[i];
+				tween = this._tweens[tweenId];
 
 				if (tween && tween.update(time) === false) {
 					tween._isPlaying = false;
 
 					if (!preserve) {
-						delete this._tweens[tweenIds[i]];
+						this.remove(tween);
 					}
 				}
 			}
 
-			tweenIds = Object.keys(this._tweensAddedDuringUpdate);
+			if (isFirstBatch) {
+				isFirstBatch = false;
+				i = 0;
+			} else {
+				i = tweenCount;
+			}
+
+			tweenCount = this._updateIndex = this._updateIds.length;
+
 		}
+
+		// Reset update state.
+		this._isUpdating = false;
+		this._updateIndex = 0;
+		this._updateIds.length = 0;
 
 		return true;
 
