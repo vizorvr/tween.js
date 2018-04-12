@@ -12,9 +12,10 @@ var _Group = function () {
 
 	this._tweens = {};
 	this._tweenIds = [];
-	this._updateIds = [];
-	this._updateIndex = 0;
+	this._newTweenIds = [];
+	this._newTweensIndex = 0;
 	this._isUpdating = false;
+	this._isTweenIdsDirty = false;
 
 };
 
@@ -22,10 +23,14 @@ _Group.prototype = {
 	getAll: function () {
 
 		var ret = [];
+		var tween;
 		var i = 0;
 
 		for (; i < this._tweenIds.length; i++) {
-			ret[i] = this._tweens[this._tweenIds[i]];
+      tween = this._tweens[this._tweenIds[i]];
+			if (tween) {
+				ret[ret.length] = this._tweens[this._tweenIds[i]];
+			}
 		}
 
 		return ret;
@@ -53,9 +58,9 @@ _Group.prototype = {
 		// not there already.
 		if (
 			this._isUpdating &&
-			this._updateIds.indexOf(tweenId, this._updateIndex) < 0
+			this._newTweenIds.indexOf(tweenId, this._newTweensIndex) < 0
 		) {
-			this._updateIds[this._updateIds.length] = tweenId;
+			this._newTweenIds[this._newTweenIds.length] = tweenId;
 		}
 
 	},
@@ -67,18 +72,13 @@ _Group.prototype = {
 		// Let's remove the tween from the collections if it exists there.
 		if (this._tweens[tweenId]) {
 			this._tweens[tweenId] = undefined;
-			this._tweenIds.splice(this._tweenIds.indexOf(tweenId), 1);
-		}
-
-		// Update the update queue if necessary.
-		/*
-		if (this._isUpdating) {
-			var index = this._updateIds.indexOf(tweenId, this._updateIndex);
-			if (index > -1) {
-				this._updateIds.splice(index, 1, 0);
+			if (this._isUpdating) {
+				this._isTweenIdsDirty = true;
+				this._tweenIds.splice(this._tweenIds.indexOf(tweenId), 1, undefined);
+			} else {
+				this._tweenIds.splice(this._tweenIds.indexOf(tweenId), 1);
 			}
 		}
-		*/
 
 	},
 
@@ -97,8 +97,6 @@ _Group.prototype = {
 		var i = 0;
 
 		this._isUpdating = true;
-		this._updateIndex = 0;
-		this._updateIds.length = 0;
 
 		// Tweens are updated in "batches". If you add a new tween during an update, then the
 		// new tween will be updated in the next batch.
@@ -106,7 +104,7 @@ _Group.prototype = {
 		// if the removed tween was added during the current batch, then it will not be updated.
 		while (tweenCount > i) {
 			for (; i < tweenCount; i++) {
-				tweenId = isFirstBatch ? this._tweenIds[i] : this._updateIds[i];
+				tweenId = isFirstBatch ? this._tweenIds[i] : this._newTweenIds[i];
 				tween = this._tweens[tweenId];
 
 				if (tween && tween.update(time) === false) {
@@ -125,14 +123,25 @@ _Group.prototype = {
 				i = tweenCount;
 			}
 
-			tweenCount = this._updateIndex = this._updateIds.length;
-
+			tweenCount = this._newTweensIndex = this._newTweenIds.length;
 		}
 
-		// Reset update state.
+		// Reset update state and new tweens stuff.
 		this._isUpdating = false;
-		this._updateIndex = 0;
-		this._updateIds.length = 0;
+		this._newTweensIndex = 0;
+		this._newTweenIds.length = 0;
+
+		// Let's clean up the tweenIds array if it's dirty (if tweens were deleted
+		// during update process).
+		if (this._isTweenIdsDirty) {
+			i = this._tweenIds.length;
+			while (i--) {
+				if (this._tweenIds[i] === undefined) {
+					this._tweenIds.splice(i, 1);
+				}
+			}
+			this._isTweenIdsDirty = false;
+		}
 
 		return true;
 
